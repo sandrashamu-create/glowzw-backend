@@ -1,13 +1,14 @@
 const express=require('express'),bcrypt=require('bcryptjs'),jwt=require('jsonwebtoken'),cors=require('cors'),fs=require('fs'),path=require('path'),{v4:uuid}=require('uuid'),initSqlJs=require('sql.js');
 const app=express(),PORT=process.env.PORT||3000,JWT_SECRET=process.env.JWT_SECRET||'glowzw-secret-2025-change-me',DB_PATH=path.join(__dirname,'glowzw.db');
-app.use(cors());app.use(express.json());
+app.use(cors());app.use(express.json({limit:"10mb"}));
+app.use(express.urlencoded({limit:"10mb",extended:true}));
 let db;
 async function initDB(){
 const SQL=await initSqlJs();
 if(fs.existsSync(DB_PATH)){db=new SQL.Database(fs.readFileSync(DB_PATH));console.log('📂 DB loaded');}
 else{db=new SQL.Database();console.log('🆕 New DB');}
 global.saveDB=()=>{const d=db.export();fs.writeFileSync(DB_PATH,Buffer.from(d));};
-db.run(`CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,email TEXT UNIQUE NOT NULL,phone TEXT,password_hash TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'customer',first_name TEXT NOT NULL,last_name TEXT NOT NULL,city TEXT DEFAULT 'Harare',is_active INTEGER DEFAULT 1,created_at TEXT DEFAULT(datetime('now')));CREATE TABLE IF NOT EXISTS providers(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,business_name TEXT NOT NULL,slug TEXT UNIQUE,bio TEXT,category TEXT NOT NULL,address TEXT,city TEXT DEFAULT 'Harare',phone TEXT,whatsapp_number TEXT,rating_avg REAL DEFAULT 0,rating_count INTEGER DEFAULT 0,is_approved INTEGER DEFAULT 0,is_featured INTEGER DEFAULT 0,created_at TEXT DEFAULT(datetime('now')));CREATE TABLE IF NOT EXISTS subscriptions(id TEXT PRIMARY KEY,provider_id TEXT NOT NULL,tier TEXT DEFAULT 'starter',status TEXT DEFAULT 'pending',price_usd REAL DEFAULT 25.00,started_at TEXT,expires_at TEXT,payment_method TEXT,created_at TEXT DEFAULT(datetime('now')));CREATE TABLE IF NOT EXISTS services(id TEXT PRIMARY KEY,provider_id TEXT NOT NULL,name TEXT NOT NULL,description TEXT,category TEXT NOT NULL,price_usd REAL NOT NULL,duration_mins INTEGER NOT NULL,is_active INTEGER DEFAULT 1,sort_order INTEGER DEFAULT 0,created_at TEXT DEFAULT(datetime('now')));CREATE TABLE IF NOT EXISTS bookings(id TEXT PRIMARY KEY,booking_ref TEXT UNIQUE NOT NULL,customer_id TEXT NOT NULL,provider_id TEXT NOT NULL,service_id TEXT NOT NULL,service_name TEXT NOT NULL,service_price_usd REAL NOT NULL,service_duration INTEGER NOT NULL,appointment_date TEXT NOT NULL,appointment_time TEXT NOT NULL,end_time TEXT NOT NULL,status TEXT DEFAULT 'pending',payment_method TEXT,customer_notes TEXT,provider_notes TEXT,confirmed_at TEXT,completed_at TEXT,cancelled_at TEXT,created_at TEXT DEFAULT(datetime('now')));CREATE TABLE IF NOT EXISTS reviews(id TEXT PRIMARY KEY,booking_id TEXT UNIQUE NOT NULL,customer_id TEXT NOT NULL,provider_id TEXT NOT NULL,rating INTEGER NOT NULL,comment TEXT,created_at TEXT DEFAULT(datetime('now')));`);
+db.run(`CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,email TEXT UNIQUE NOT NULL,phone TEXT,password_hash TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'customer',first_name TEXT NOT NULL,last_name TEXT NOT NULL,city TEXT DEFAULT 'Harare',is_active INTEGER DEFAULT 1,created_at TEXT DEFAULT(datetime('now')));CREATE TABLE IF NOT EXISTS providers(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,business_name TEXT NOT NULL,slug TEXT UNIQUE,bio TEXT,category TEXT NOT NULL,address TEXT,city TEXT DEFAULT 'Harare',phone TEXT,whatsapp_number TEXT,rating_avg REAL DEFAULT 0,rating_count INTEGER DEFAULT 0,is_approved INTEGER DEFAULT 0,is_featured INTEGER DEFAULT 0,created_at TEXT DEFAULT(datetime('now')));CREATE TABLE IF NOT EXISTS subscriptions(id TEXT PRIMARY KEY,provider_id TEXT NOT NULL,tier TEXT DEFAULT 'starter',status TEXT DEFAULT 'pending',price_usd REAL DEFAULT 25.00,started_at TEXT,expires_at TEXT,payment_method TEXT,created_at TEXT DEFAULT(datetime('now')));CREATE TABLE IF NOT EXISTS services(id TEXT PRIMARY KEY,provider_id TEXT NOT NULL,name TEXT NOT NULL,description TEXT,category TEXT NOT NULL,price_usd REAL NOT NULL,duration_mins INTEGER NOT NULL,is_active INTEGER DEFAULT 1,sort_order INTEGER DEFAULT 0,created_at TEXT DEFAULT(datetime('now')));CREATE TABLE IF NOT EXISTS bookings(id TEXT PRIMARY KEY,booking_ref TEXT UNIQUE NOT NULL,customer_id TEXT NOT NULL,provider_id TEXT NOT NULL,service_id TEXT NOT NULL,service_name TEXT NOT NULL,service_price_usd REAL NOT NULL,service_duration INTEGER NOT NULL,appointment_date TEXT NOT NULL,appointment_time TEXT NOT NULL,end_time TEXT NOT NULL,status TEXT DEFAULT 'pending',payment_method TEXT,customer_notes TEXT,provider_notes TEXT,confirmed_at TEXT,completed_at TEXT,cancelled_at TEXT,created_at TEXT DEFAULT(datetime('now')));CREATE TABLE IF NOT EXISTS portfolio_photos(id TEXT PRIMARY KEY,provider_id TEXT NOT NULL,image_data TEXT NOT NULL,caption TEXT,created_at TEXT DEFAULT(datetime('now')));CREATE TABLE IF NOT EXISTS reviews(id TEXT PRIMARY KEY,booking_id TEXT UNIQUE NOT NULL,customer_id TEXT NOT NULL,provider_id TEXT NOT NULL,rating INTEGER NOT NULL,comment TEXT,created_at TEXT DEFAULT(datetime('now')));`);
 saveDB();
 if(!dbGet('SELECT id FROM users WHERE role=?',['admin'])){
 const provUserId=uuid(),provId=uuid();
@@ -69,19 +70,7 @@ initDB().then(()=>app.listen(PORT,()=>{console.log(`\n🌟 GlowZW API on port ${
 // ═══════════════════════════════════════════════════════════
 //  PORTFOLIO PHOTOS  (appended)
 // ═══════════════════════════════════════════════════════════
-// Wait for DB to be ready before adding schema
-setTimeout(function(){
-  try {
-    db.run(`CREATE TABLE IF NOT EXISTS portfolio_photos (
-      id TEXT PRIMARY KEY,
-      provider_id TEXT NOT NULL,
-      image_data TEXT NOT NULL,
-      caption TEXT,
-      created_at TEXT DEFAULT (datetime('now'))
-    );`);
-    saveDB();
-  } catch(e) { console.log('Portfolio table note:', e.message); }
-}, 2000);
+
 
 // POST /api/portfolio  — provider uploads a photo (base64)
 app.post('/api/portfolio', auth(['provider']), function(req, res) {
