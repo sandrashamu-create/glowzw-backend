@@ -65,3 +65,49 @@ app.post('/api/admin/subscriptions/:id/mark-paid',auth(['admin']),(req,res)=>{co
 app.get('/api/admin/analytics',auth(['admin']),(req,res)=>{const byCategory=dbAll(`SELECT p.category,COUNT(b.id) AS bookings,COALESCE(SUM(b.service_price_usd),0) AS revenue FROM bookings b JOIN providers p ON p.id=b.provider_id WHERE b.status='completed' GROUP BY p.category ORDER BY bookings DESC`);const topProviders=dbAll(`SELECT p.business_name,p.category,p.rating_avg,COUNT(b.id) AS bookings,COALESCE(SUM(b.service_price_usd),0) AS revenue FROM providers p LEFT JOIN bookings b ON b.provider_id=p.id AND b.status='completed' WHERE p.is_approved=1 GROUP BY p.id ORDER BY bookings DESC LIMIT 10`);res.json({success:true,data:{byCategory,topProviders}});});
 app.get('/api/admin/users',auth(['admin']),(req,res)=>{const{role}=req.query;let sql='SELECT id,email,phone,role,first_name,last_name,city,is_active,created_at FROM users';if(role)sql+=` WHERE role='${role}'`;sql+=' ORDER BY created_at DESC';res.json({success:true,data:dbAll(sql)});});
 initDB().then(()=>app.listen(PORT,()=>{console.log(`\n🌟 GlowZW API on port ${PORT}\n`);})).catch(e=>{console.error('Start failed:',e);process.exit(1);});
+
+// ═══════════════════════════════════════════════════════════
+//  PORTFOLIO PHOTOS  (appended)
+// ═══════════════════════════════════════════════════════════
+// Wait for DB to be ready before adding schema
+setTimeout(function(){
+  try {
+    db.run(`CREATE TABLE IF NOT EXISTS portfolio_photos (
+      id TEXT PRIMARY KEY,
+      provider_id TEXT NOT NULL,
+      image_data TEXT NOT NULL,
+      caption TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );`);
+    saveDB();
+  } catch(e) { console.log('Portfolio table note:', e.message); }
+}, 2000);
+
+// POST /api/portfolio  — provider uploads a photo (base64)
+app.post('/api/portfolio', auth(['provider']), function(req, res) {
+  var p = dbGet('SELECT id FROM providers WHERE user_id=?', [req.user.id]);
+  if (!p) return res.status(404).json({success:false, message:'Provider not found'});
+  var imageData = req.body.imageData;
+  var caption = req.body.caption || '';
+  if (!imageData) return res.status(400).json({success:false, message:'imageData required'});
+  // Limit to 5 photos per provider
+  var count = dbGet('SELECT COUNT(*) AS cnt FROM portfolio_photos WHERE provider_id=?', [p.id]);
+  if (count && count.cnt >= 5) return res.status(400).json({success:false, message:'Maximum 5 portfolio photos allowed'});
+  var id = uuid();
+  dbRun('INSERT INTO portfolio_photos (id,provider_id,image_data,caption) VALUES (?,?,?,?)', [id, p.id, imageData, caption]);
+  res.status(201).json({success:true, message:'Photo uploaded!', data:{id:id}});
+});
+
+// GET /api/portfolio/:providerId  — public, get all photos for a provider
+app.get('/api/portfolio/:providerId', function(req, res) {
+  var photos = dbAll('SELECT id,caption,image_data,created_at FROM portfolio_photos WHERE provider_id=? ORDER BY created_at DESC', [req.params.providerId]);
+  res.json({success:true, data:photos});
+});
+
+// DELETE /api/portfolio/:id  — provider deletes their photo
+app.delete('/api/portfolio/:id', auth(['provider']), function(req, res) {
+  var p = dbGet('SELECT id FROM providers WHERE user_id=?', [req.user.id]);
+  if (!p) return res.status(404).json({success:false, message:'Not found'});
+  dbRun('DELETE FROM portfolio_photos WHERE id=? AND provider_id=?', [req.params.id, p.id]);
+  res.json({success:true, message:'Photo removed'});
+});
