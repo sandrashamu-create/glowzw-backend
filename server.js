@@ -62,10 +62,27 @@ app.get('/api/admin/providers',auth(['admin']),(req,res)=>{const{status}=req.que
 app.patch('/api/admin/providers/:id/approve',auth(['admin']),(req,res)=>{dbRun('UPDATE providers SET is_approved=1 WHERE id=?',[req.params.id]);dbRun("UPDATE subscriptions SET status='active',started_at=datetime('now'),expires_at=datetime('now','+30 days') WHERE provider_id=? AND status='pending'",[req.params.id]);res.json({success:true,message:'Provider approved'});});
 app.patch('/api/admin/providers/:id/suspend',auth(['admin']),(req,res)=>{dbRun('UPDATE providers SET is_approved=0 WHERE id=?',[req.params.id]);dbRun("UPDATE subscriptions SET status='suspended' WHERE provider_id=?",[req.params.id]);res.json({success:true,message:'Provider suspended'});});
 app.get('/api/admin/subscriptions',auth(['admin']),(req,res)=>res.json({success:true,data:dbAll(`SELECT s.*,p.business_name,p.category,u.email,u.phone FROM subscriptions s JOIN providers p ON p.id=s.provider_id JOIN users u ON u.id=p.user_id ORDER BY s.created_at DESC`)}));
-app.post('/api/admin/subscriptions/:id/mark-paid',auth(['admin']),(req,res)=>{const{paymentMethod}=req.body;const sub=dbGet('SELECT * FROM subscriptions WHERE id=?',[req.params.id]);if(!sub)return res.status(404).json({success:false,message:'Not found'});dbRun("UPDATE subscriptions SET status='active',payment_method=?,started_at=datetime('now'),expires_at=datetime('now','+30 days') WHERE id=?",[paymentMethod||'usd_cash',req.params.id]);dbRun('UPDATE providers SET is_approved=1 WHERE id=?',[sub.provider_id]);res.json({success:true,message:'Activated'});});
+app.post('/api/admin/subscriptions/:id/mark-paid',auth(['admin']),(req,res)=>{const{paymentMethod}=req.body;const sub=dbGet('SELECT * FROM subscriptions WHERE id=?',[req.params.id]);if(!sub)return res.status(404).json({success:false,message:'Not found'});const months=req.body.months||1;const price=req.body.customPrice||null;
+  dbRun("UPDATE subscriptions SET status='active',payment_method=?,price_usd=COALESCE(?,price_usd),started_at=datetime('now'),expires_at=datetime('now','+"+(months*30)+" days') WHERE id=?",[paymentMethod||'usd_cash',price,req.params.id]);dbRun('UPDATE providers SET is_approved=1 WHERE id=?',[sub.provider_id]);res.json({success:true,message:'Activated'});});
 app.get('/api/admin/analytics',auth(['admin']),(req,res)=>{const byCategory=dbAll(`SELECT p.category,COUNT(b.id) AS bookings,COALESCE(SUM(b.service_price_usd),0) AS revenue FROM bookings b JOIN providers p ON p.id=b.provider_id WHERE b.status='completed' GROUP BY p.category ORDER BY bookings DESC`);const topProviders=dbAll(`SELECT p.business_name,p.category,p.rating_avg,COUNT(b.id) AS bookings,COALESCE(SUM(b.service_price_usd),0) AS revenue FROM providers p LEFT JOIN bookings b ON b.provider_id=p.id AND b.status='completed' WHERE p.is_approved=1 GROUP BY p.id ORDER BY bookings DESC LIMIT 10`);res.json({success:true,data:{byCategory,topProviders}});});
 app.get('/api/admin/users',auth(['admin']),(req,res)=>{const{role}=req.query;let sql='SELECT id,email,phone,role,first_name,last_name,city,is_active,created_at FROM users';if(role)sql+=` WHERE role='${role}'`;sql+=' ORDER BY created_at DESC';res.json({success:true,data:dbAll(sql)});});
 initDB().then(()=>app.listen(PORT,()=>{console.log(`\n🌟 GlowZW API on port ${PORT}\n`);})).catch(e=>{console.error('Start failed:',e);process.exit(1);});
+
+
+// DELETE /api/admin/providers/:id  - permanently remove provider
+app.delete('/api/admin/providers/:id',auth(['admin']),(req,res)=>{
+  const id=req.params.id;
+  // Delete all related data
+  dbRun('DELETE FROM portfolio_photos WHERE provider_id=?',[id]);
+  dbRun('DELETE FROM reviews WHERE provider_id=?',[id]);
+  dbRun('DELETE FROM bookings WHERE provider_id=?',[id]);
+  dbRun('DELETE FROM services WHERE provider_id=?',[id]);
+  dbRun('DELETE FROM subscriptions WHERE provider_id=?',[id]);
+  const p=dbGet('SELECT user_id FROM providers WHERE id=?',[id]);
+  dbRun('DELETE FROM providers WHERE id=?',[id]);
+  if(p) dbRun('DELETE FROM users WHERE id=?',[p.user_id]);
+  res.json({success:true,message:'Provider permanently deleted'});
+});
 
 // ═══════════════════════════════════════════════════════════
 //  PORTFOLIO PHOTOS  (appended)
